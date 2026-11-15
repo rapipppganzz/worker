@@ -55,7 +55,7 @@ test("password hash: salted, verifies, rejects wrong", async () => {
 test("validateCreate", () => {
   const ok = validateCreate({ name: " Nobar  Malam ", visibility: "private", password: "abcd", maxParticipants: 6 }, { MAX_PARTICIPANTS_CAP: "20" });
   assert.equal(ok.name, "Nobar Malam"); assert.equal(ok.chatEnabled, true);
-  for (const b of [{ name: "ab", visibility: "public" }, { name: "abc" }, { name: "abc", visibility: "public", password: "x" }, { name: "abc", visibility: "public", maxParticipants: 99 }, { name: "abc", visibility: "public", maxParticipants: 1 }])
+  for (const b of [{ name: "ab", visibility: "public" }, { name: "abc" }, { name: "abc", visibility: "public", password: "x" }, { name: "abc", visibility: "public", maxParticipants: 99 }, { name: "abc", visibility: "public", maxParticipants: 1 }, { name: "abc", visibility: "private" }])
     assert.throws(() => validateCreate(b, { MAX_PARTICIPANTS_CAP: "20" }), (e) => e.status === 400);
 });
 test("sanitize chat & media", () => {

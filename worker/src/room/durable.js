@@ -24,7 +24,7 @@ export class WatchRoom extends DurableObject {
       now: () => Date.now(), cap,
       sockets: () => ctx.getWebSockets().map(wrap),
       setAlarm: (ms) => { ctx.storage.setAlarm(ms); },
-      wipe: async () => { await ctx.storage.deleteAlarm(); await ctx.storage.deleteAll(); },
+      wipe: async () => { await ctx.storage.deleteAlarm(); await ctx.storage.deleteAll(); this.engine.migrate(); }, // tabel dibuat ulang (kosong) agar request berikutnya → 404, bukan error SQL
     });
     ctx.blockConcurrencyWhile(async () => { this.engine.migrate(); });
   }
@@ -33,6 +33,8 @@ export class WatchRoom extends DurableObject {
     const url = new URL(request.url);
     try {
       if (url.pathname === "/create" && request.method === "POST") return json({ ok: true, ...(await this.engine.create(await readJson(request, 8192))) });
+      if (url.pathname === "/summary" && request.method === "POST") return json({ ok: true, room: this.engine.summary() });
+      if (url.pathname === "/destroy" && request.method === "POST") return json({ ok: true, ...(await this.engine.destroy(await readJson(request, 4096))) });
       if (url.pathname === "/join" && request.method === "POST") return json({ ok: true, ...(await this.engine.join(await readJson(request, 4096))) });
       if (url.pathname === "/ws" || url.pathname.endsWith("/ws")) { // index.js meneruskan request asli (/api/rooms/:id/ws), bukan /ws
         if (request.headers.get("Upgrade") !== "websocket") throw new HttpError(426, "UPGRADE_REQUIRED", "Butuh WebSocket.");

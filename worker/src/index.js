@@ -3,6 +3,8 @@
      GET  /api/health
      POST /api/rooms                 buat room            (Bearer)
      POST /api/rooms/:id/join        minta tiket masuk    (Bearer; body: {password?, invite?})
+     GET  /api/rooms                 daftar server publik (Bearer)
+     DELETE /api/rooms/:id           hapus room           (Bearer; host saja)
      GET  /api/rooms/:id/ws?ticket=  upgrade WebSocket    (tiket sekali pakai; Origin wajib diizinkan) */
 import { HttpError, json, errorResponse, readJson, corsHeaders, originAllowed } from "./http.js";
 import { authenticate } from "./auth.js";
@@ -12,6 +14,7 @@ import { validateCreate } from "./validate.js";
 
 export { WatchRoom } from "./room/durable.js";
 export { RateLimiter } from "./limiter.js";
+export { Directory } from "./directory.js";
 
 const ip = (req) => req.headers.get("CF-Connecting-IP") || "unknown";
 const roomStub = (env, id) => env.ROOM.get(env.ROOM.idFromName(id));
@@ -19,6 +22,24 @@ const roomStub = (env, id) => env.ROOM.get(env.ROOM.idFromName(id));
 async function toDO(env, roomId, path, body) {
   const res = await roomStub(env, roomId).fetch("https://room" + path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   return res;
+}
+
+const directory = (env) => env.DIRECTORY && env.DIRECTORY.get(env.DIRECTORY.idFromName("main"));
+const officialIds = (env) => new Set(String(env.OFFICIAL_HOST_IDS || "").split(",").map((s) => s.trim()).filter(Boolean));
+let dirCache = { at: 0, rooms: null }; // cache singkat per isolate supaya polling klien tidak membanjiri Durable Object
+async function listPublic(env) {
+  const dir = directory(env); if (!dir) return [];
+  if (dirCache.rooms && Date.now() - dirCache.at < 8000) return dirCache.rooms;
+  const ids = await dir.ids(20);
+  const got = await Promise.all(ids.map(async (id) => {
+    try {
+      const r = await toDO(env, id, "/summary", {});
+      if (r.status === 404) { await dir.remove(id); return null; }
+      return r.ok ? (await r.json()).room : null;
+    } catch (_) { return null; }
+  }));
+  dirCache = { at: Date.now(), rooms: got.filter(Boolean) };
+  return dirCache.rooms;
 }
 
 async function handle(request, env) {
@@ -42,6 +63,16 @@ async function handle(request, env) {
     return roomStub(env, id).fetch(request); // tiket divalidasi di dalam Durable Object
   }
 
+  // ---- daftar server publik (resmi di atas, lalu buatan pengguna) ----
+  if (path === "/api/rooms" && request.method === "GET") {
+    const user = await authenticate(request, env);
+    await rateLimit(env, "list:u:" + user.id, 30, 60000);
+    const off = officialIds(env);
+    const rooms = (await listPublic(env)).map(({ hostId, ...r }) => ({ ...r, official: off.has(hostId), mine: hostId === user.id }))
+      .sort((a, b) => (b.official - a.official) || (b.participants - a.participants) || (b.createdAt - a.createdAt));
+    return json({ ok: true, rooms, me: off.size ? undefined : user.id }, 200, cors); // `me` hanya muncul selama OFFICIAL_HOST_IDS belum diisi
+  }
+
   // ---- buat room ----
   if (path === "/api/rooms" && request.method === "POST") {
     const user = await authenticate(request, env);
@@ -52,6 +83,7 @@ async function handle(request, env) {
       const roomId = generateRoomId();
       const res = await toDO(env, roomId, "/create", { ...body, roomId, inviteKey: generateInviteKey(), host: user });
       if (res.status === 409) continue; // ID bentrok (sangat jarang)
+      if (res.ok && body.visibility === "public") { try { await directory(env)?.add(roomId); dirCache.at = 0; } catch (_) {} }
       const out = new Response(res.body, res);
       cors.forEach((v, k) => out.headers.set(k, v));
       return out;
@@ -72,6 +104,20 @@ async function handle(request, env) {
     const invite = typeof body.invite === "string" && /^[0-9a-f]{32}$/.test(body.invite) ? body.invite : null;
     if (password) await rateLimit(env, "pw:" + user.id + ":" + id, 5, 60000); // batasi tebak password
     const res = await toDO(env, id, "/join", { user, password, invite });
+    const out = new Response(res.body, res);
+    cors.forEach((v, k) => out.headers.set(k, v));
+    return out;
+  }
+
+  // ---- hapus room (host saja; peserta lain dapat 404 yang sama dengan room tidak ada) ----
+  m = /^\/api\/rooms\/([^/]+)$/.exec(path);
+  if (m && request.method === "DELETE") {
+    const user = await authenticate(request, env);
+    const id = normalizeRoomId(decodeURIComponent(m[1]));
+    if (!id) throw new HttpError(404, "NOT_FOUND", "Room tidak ditemukan, atau kamu tidak punya akses.");
+    await rateLimit(env, "del:u:" + user.id, 10, 60000);
+    const res = await toDO(env, id, "/destroy", { user });
+    if (res.ok) { try { await directory(env)?.remove(id); dirCache.at = 0; } catch (_) {} }
     const out = new Response(res.body, res);
     cors.forEach((v, k) => out.headers.set(k, v));
     return out;

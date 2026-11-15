@@ -110,6 +110,29 @@ export class RoomEngine {
     return { ticket, room: this.roomView(r, user.id) };
   }
 
+  /** Ringkasan untuk daftar server publik. Private / sudah berakhir / tidak ada → 404 (Worker lalu mencabutnya dari daftar). */
+  summary() {
+    this.tick();
+    const r = this.room();
+    if (!r || r.visibility !== "public" || r.status === "ended") throw notFound();
+    const v = this.roomView(r), host = this.member(r.host_id), m = v.media;
+    return {
+      roomId: r.room_id, name: r.name, hostId: r.host_id, hostName: v.hostName, hostAvatar: host ? host.avatar : "",
+      status: r.status, participants: v.participants, max: r.max_participants, hasPassword: v.hasPassword, createdAt: r.created_at,
+      media: m ? { title: m.title, poster: m.poster, type: m.type, season: m.season, episode: m.episode } : null,
+    };
+  }
+
+  /** Host menghapus room: semua peserta diputus, seluruh data dihapus. Bukan host → 404 (sama dengan room tidak ada). */
+  async destroy({ user }) {
+    const r = this.room();
+    if (!r || r.host_id !== user.id) throw notFound();
+    this.bcast({ t: "ended", reason: "host_ended" });
+    for (const s of this.d.sockets()) s.close(1000, "ended");
+    await this.d.wipe();
+    return {};
+  }
+
   issueTicket(user, now) {
     this.db.run("DELETE FROM tickets WHERE expires_at<=? OR user_id=?", now, user.id);
     const ticket = randomToken(24);

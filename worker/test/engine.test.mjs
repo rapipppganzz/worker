@@ -202,3 +202,22 @@ test("media: host sets, viewers notified; viewer cannot; bad media rejected", as
   assert.equal(a.last("room").room.media.title, "The Matrix");
   host.say("media", { media: { title: "x" } }); assert.equal(host.last("error").code, "BAD_MEDIA");
 });
+
+test("destroy: hanya host; peserta diputus; room hilang (NOT_FOUND)", async () => {
+  const w = makeWorld(); await w.create(H);
+  const { sock } = await w.joinWs(H); const { sock: s2 } = await w.joinWs(A);
+  await rejects(w.eng.destroy({ user: A }), "NOT_FOUND");
+  await w.eng.destroy({ user: H });
+  assert.ok(sock.closed && s2.closed); assert.equal(s2.last("ended").reason, "host_ended"); assert.equal(w.wiped, true);
+});
+
+test("summary: hanya room publik yang aktif; private/ended → NOT_FOUND; tanpa data rahasia", async () => {
+  const w = makeWorld(); await w.create(H, { name: "Nobar Seru" });
+  const s = w.eng.summary();
+  assert.equal(s.name, "Nobar Seru"); assert.equal(s.hostName, "Host"); assert.equal(s.hostId, "h"); assert.equal(s.max, 5); assert.equal(s.hasPassword, false);
+  assert.ok(!("inviteKey" in s) && !("pw_hash" in s));
+  const p = makeWorld(); await p.create(H, { visibility: "private", password: "abcd1234" });
+  assert.throws(() => p.eng.summary(), (e) => e.code === "NOT_FOUND");
+  const { sock } = await w.joinWs(H); sock.say("start"); sock.say("end");
+  assert.throws(() => w.eng.summary(), (e) => e.code === "NOT_FOUND");
+});

@@ -55,6 +55,7 @@ export function validateCreate(body, env) {
       throw new HttpError(400, "BAD_PASSWORD", "Password room 4–64 karakter.");
     password = body.password;
   }
+  if (visibility === "private" && !password) throw new HttpError(400, "PASSWORD_REQUIRED", "Room Private wajib pakai password.");
   let max = body.maxParticipants == null ? Math.min(10, cap) : body.maxParticipants;
   if (!Number.isInteger(max) || max < 2 || max > cap) throw new HttpError(400, "BAD_MAX", `Jumlah peserta 2–${cap}.`);
   const chatEnabled = body.chatEnabled === false ? false : true;
