@@ -1,0 +1,15 @@
+{
+  "name": "rapip-watchparty",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "RapipMovies Watch Party: Cloudflare Worker + Durable Objects (SQLite, WebSocket Hibernation)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --test --no-warnings \"test/*.test.mjs\""
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
