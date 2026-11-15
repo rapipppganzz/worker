@@ -27,7 +27,7 @@
     "MAX_PARTICIPANTS_CAP": "20",
     // ID akun (dipisah koma) yang room publiknya tampil paling atas sebagai "Server Resmi". Kosong = tidak ada.
     // Selama kosong, beranda menampilkan ID akun pemakai yang sedang login (salin ke sini).
-    "OFFICIAL_HOST_IDS": ""
+    "OFFICIAL_HOST_IDS": "umvuq2n9z6911"
   },
 
   "observability": { "enabled": true }
