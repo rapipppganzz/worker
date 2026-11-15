@@ -9,7 +9,7 @@ import { sendChat, recentChat } from "./chat.js";
 import { createRequest, takeRequest, pendingRequests, expireRequests, reqView } from "./pause.js";
 
 export const LIMITS = {
-  ticketMs: 30000, hostGraceMs: 90000, emptyMs: 600000, maxLifeMs: 12 * 3600000, endedKeepMs: 3600000,
+  ticketMs: 30000, hostAwayMs: 30 * 60000, emptyMs: 600000, maxLifeMs: 12 * 3600000, endedKeepMs: 3600000,
   maxMembers: 100, maxSocketsPerUser: 3, maxMsgBytes: 2048, floodWindow: 10000, floodMax: 40, reactMs: 1000, reportMinMs: 2000,
 };
 const notFound = () => new HttpError(404, "NOT_FOUND", "Room tidak ditemukan, atau kamu tidak punya akses.");
@@ -313,23 +313,14 @@ export class RoomEngine {
   leave(sock, r, me, now) {
     const uid = me.user_id;
     if (uid === r.host_id) {
-      const next = this.pickNextHost(r, uid);
-      if (!next) return this.endRoom("host_left");
-      this.setHost(next.user_id, now);
+      /* Pembuat room tetap host selamanya: keluar = offline biasa (tetap jadi anggota, bisa masuk lagi dengan Room ID).
+         Notice "offline" + presence dikirim oleh onClose(); jika host tak kembali dalam hostAwayMs, room berakhir (lihat tick). */
+      for (const s of this.d.sockets().filter((x) => x.userId === uid)) { send(s, { t: "left" }); s.close(1000, "left"); }
+      return;
     }
     this.db.run("DELETE FROM members WHERE user_id=?", uid);
     for (const s of this.d.sockets().filter((x) => x.userId === uid)) { send(s, { t: "left" }); s.close(1000, "left"); }
     this.bcast({ t: "notice", k: "leave", name: me.name }); this.pushRoom(this.room()); this.afterPresence();
-  }
-
-  pickNextHost(r, exceptId) {
-    const on = this.onlineMap();
-    return this.db.all("SELECT * FROM members WHERE banned=0 AND user_id!=? ORDER BY joined_at", exceptId).find((m) => on.has(m.user_id) && m.user_id !== exceptId) || null;
-  }
-  setHost(userId, now) {
-    this.db.run("UPDATE room SET host_id=?, host_away_since=NULL WHERE k=1", userId);
-    const m = this.member(userId);
-    this.pushRoom(this.room()); this.bcast({ t: "notice", k: "host", name: m ? m.name : "" });
   }
 
   onClose(sock) {
@@ -382,17 +373,15 @@ export class RoomEngine {
       const since = r.empty_since || r.created_at;
       if (now - since >= LIMITS.emptyMs) return this.endRoom("empty");
     }
-    if (r.host_away_since && !on.has(r.host_id) && now - r.host_away_since >= LIMITS.hostGraceMs) {
-      const next = this.pickNextHost(r, r.host_id);
-      if (next) this.setHost(next.user_id, now);
-    }
+    /* host_id tidak pernah dipindah ke orang lain; bila host tak kembali terlalu lama, room diakhiri */
+    if (r.host_away_since && !on.has(r.host_id) && now - r.host_away_since >= LIMITS.hostAwayMs) return this.endRoom("host_left");
   }
   nextAlarmAt() {
     const r = this.room(); if (!r) return null;
     if (r.status === "ended") return r.ended_at + LIMITS.endedKeepMs;
     const c = [r.created_at + LIMITS.maxLifeMs];
     if (r.empty_since) c.push(r.empty_since + LIMITS.emptyMs);
-    if (r.host_away_since) c.push(r.host_away_since + LIMITS.hostGraceMs);
+    if (r.host_away_since) c.push(r.host_away_since + LIMITS.hostAwayMs);
     const q = this.db.all("SELECT MIN(expires_at) AS e FROM pause_req WHERE status='pending'")[0];
     if (q && q.e) c.push(q.e);
     return Math.min(...c);
