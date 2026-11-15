@@ -5,6 +5,7 @@
      POST /api/rooms/:id/join        minta tiket masuk    (Bearer; body: {password?, invite?})
      GET  /api/rooms                 daftar server publik (Bearer)
      DELETE /api/rooms/:id           hapus room           (Bearer; host saja)
+     POST /api/rooms/alive           {ids:[...]} → id yang masih hidup & milik/anggota pemanggil (Bearer)
      GET  /api/rooms/:id/ws?ticket=  upgrade WebSocket    (tiket sekali pakai; Origin wajib diizinkan) */
 import { HttpError, json, errorResponse, readJson, corsHeaders, originAllowed } from "./http.js";
 import { authenticate } from "./auth.js";
@@ -89,6 +90,19 @@ async function handle(request, env) {
       return out;
     }
     throw new HttpError(503, "ID_BUSY", "Gagal membuat ID room. Coba lagi.");
+  }
+
+  // ---- cek room mana yang masih hidup (hanya milik/anggota si pemanggil) ----
+  if (path === "/api/rooms/alive" && request.method === "POST") {
+    const user = await authenticate(request, env);
+    await rateLimit(env, "alive:u:" + user.id, 20, 60000);
+    const body = await readJson(request, 1024);
+    const ids = (Array.isArray(body.ids) ? body.ids : []).slice(0, 10).map((x) => normalizeRoomId(String(x))).filter(Boolean);
+    const alive = [];
+    await Promise.all(ids.map(async (id) => {
+      try { const r = await toDO(env, id, "/alive", { user }); if (r.ok && (await r.json()).alive) alive.push(id); } catch (_) {}
+    }));
+    return json({ ok: true, alive }, 200, cors);
   }
 
   // ---- join ----

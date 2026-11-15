@@ -110,6 +110,15 @@ export class RoomEngine {
     return { ticket, room: this.roomView(r, user.id) };
   }
 
+  /** Apakah room ini masih hidup DAN user ini host/anggotanya? (dipakai klien untuk membuang room hangus dari "Room kamu"). Tidak membocorkan room orang lain. */
+  alive({ user }) {
+    this.tick();
+    const r = this.room();
+    if (!r || r.status === "ended" || !user) return false;
+    const m = this.member(user.id);
+    return r.host_id === user.id || !!(m && !m.banned);
+  }
+
   /** Ringkasan untuk daftar server publik. Private / sudah berakhir / tidak ada → 404 (Worker lalu mencabutnya dari daftar). */
   summary() {
     this.tick();

@@ -34,6 +34,7 @@ export class WatchRoom extends DurableObject {
     try {
       if (url.pathname === "/create" && request.method === "POST") return json({ ok: true, ...(await this.engine.create(await readJson(request, 8192))) });
       if (url.pathname === "/summary" && request.method === "POST") return json({ ok: true, room: this.engine.summary() });
+      if (url.pathname === "/alive" && request.method === "POST") return json({ ok: true, alive: this.engine.alive(await readJson(request, 4096)) });
       if (url.pathname === "/destroy" && request.method === "POST") return json({ ok: true, ...(await this.engine.destroy(await readJson(request, 4096))) });
       if (url.pathname === "/join" && request.method === "POST") return json({ ok: true, ...(await this.engine.join(await readJson(request, 4096))) });
       if (url.pathname === "/ws" || url.pathname.endsWith("/ws")) { // index.js meneruskan request asli (/api/rooms/:id/ws), bukan /ws
